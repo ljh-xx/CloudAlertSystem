@@ -43,9 +43,19 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="MFCClient.cpp" />
+    <ClCompile Include="MainFrame.cpp" />
+    <ClCompile Include="LoginDlg.cpp" />
+    <ClCompile Include="RegisterDlg.cpp" />
+    <ClCompile Include="ChangeEmailDlg.cpp" />
+    <ClCompile Include="StyledButton.cpp" />
     <ClCompile Include="..\Client\TcpClient.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="MainFrame.h" />
+    <ClInclude Include="LoginDlg.h" />
+    <ClInclude Include="RegisterDlg.h" />
+    <ClInclude Include="ChangeEmailDlg.h" />
+    <ClInclude Include="StyledButton.h" />
     <ClInclude Include="..\Client\TcpClient.h" />
     <ClInclude Include="..\Server\Protocol.h" />
   </ItemGroup>

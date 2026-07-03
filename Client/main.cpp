@@ -166,10 +166,11 @@ int main() {
         // ---- 3. Set email ----
         else if (choice == 3) {
             if (g_username[0] == 0) { printf("[ERR] Please login first\n"); continue; }
-            char email[128];
+            char pass[64], email[128];
+            printf("Current password: "); fgets(pass, sizeof(pass), stdin); pass[strcspn(pass, "\n")] = 0;
             printf("New email: "); fgets(email, sizeof(email), stdin); email[strcspn(email, "\n")] = 0;
             char cmd[256];
-            _snprintf_s(cmd, sizeof(cmd), "SET_EMAIL %s %s", g_username, email);
+            _snprintf_s(cmd, sizeof(cmd), "SET_EMAIL %s %s %s", g_username, pass, email);
             DoCmd(cmd);
         }
         // ---- 4. Add price alert ----
@@ -178,11 +179,11 @@ int main() {
             char contract[32]; double price; int cond;
             printf("Contract (e.g. rb2609): "); fgets(contract, sizeof(contract), stdin);
             contract[strcspn(contract, "\n")] = 0;
-            printf("Trigger price: "); scanf_s("%lf", &price); getchar();
             printf("Condition:\n");
-            printf("  0 = alert when price RISES to >= %.4f\n", price);
-            printf("  1 = alert when price DROPS to <= %.4f\n", price);
+            printf("  0 = alert when price RISES to >= target\n");
+            printf("  1 = alert when price DROPS to <= target\n");
             printf("Enter 0 or 1: "); scanf_s("%d", &cond); getchar();
+            printf("Trigger price: "); scanf_s("%lf", &price); getchar();
             char cmd[256];
             _snprintf_s(cmd, sizeof(cmd), "ADD_PRICE %s %s %.4f %d", g_username, contract, price, cond);
             DoCmd(cmd);
@@ -215,9 +216,9 @@ int main() {
             printf("Alert ID: ");     scanf_s("%d", &id); getchar();
             printf("New contract: "); fgets(contract, sizeof(contract), stdin);
             contract[strcspn(contract, "\n")] = 0;
-            printf("New price: ");    scanf_s("%lf", &price); getchar();
             printf("Condition  0=price rises to >=  1=price drops to <=: ");
             scanf_s("%d", &cond); getchar();
+            printf("New price: "); scanf_s("%lf", &price); getchar();
             char cmd[256];
             _snprintf_s(cmd, sizeof(cmd), "MODIFY_PRICE %d %s %.4f %d", id, contract, price, cond);
             DoCmd(cmd);

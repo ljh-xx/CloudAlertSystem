@@ -117,6 +117,7 @@ void ClientSession::Dispatch(const std::string& line) {
     else if (cmd == CMD_MODIFY_TIME)  HandleModifyTime(line);
     else if (cmd == CMD_QUERY)        HandleQuery(line);
     else if (cmd == CMD_SET_EMAIL)    HandleSetEmail(line);
+    else if (cmd == CMD_GET_EMAIL)    HandleGetEmail(line);
     else {
         SendLine("ERR Unknown command");
     }
@@ -188,7 +189,7 @@ void ClientSession::HandleAddPrice(const std::string& line) {
     }
     const std::string& contract = tokens[2];
     double price = atof(tokens[3].c_str());
-    int    cond  = atoi(tokens[4].c_str());
+    int cond = atoi(tokens[4].c_str());
     if (cond != COND_GE && cond != COND_LE) {
         SendLine("ERR condition must be 0 (>=) or 1 (<=)");
         return;
@@ -262,7 +263,7 @@ void ClientSession::HandleModifyPrice(const std::string& line) {
     int    alertId  = atoi(tokens[1].c_str());
     const std::string& contract = tokens[2];
     double price    = atof(tokens[3].c_str());
-    int    cond     = atoi(tokens[4].c_str());
+    int cond = atoi(tokens[4].c_str());
     if (cond != COND_GE && cond != COND_LE) {
         SendLine("ERR condition must be 0 (>=) or 1 (<=)");
         return;
@@ -323,19 +324,44 @@ void ClientSession::HandleQuery(const std::string& line) {
 }
 
 // ---------------------------------------------------------------------------
-// SET_EMAIL <username> <email>
+// SET_EMAIL <username> <password> <email>
 // ---------------------------------------------------------------------------
 
 void ClientSession::HandleSetEmail(const std::string& line) {
     if (m_userId < 0) { SendLine("ERR Not logged in"); return; }
     auto tokens = SplitLine(line);
-    if (tokens.size() < 3) {
-        SendLine("ERR SET_EMAIL requires username email");
+    if (tokens.size() < 4) {
+        SendLine("ERR SET_EMAIL requires username password email");
         return;
     }
-    const std::string& email = tokens[2];
+    const std::string& username = tokens[1];
+    const std::string& password = tokens[2];
+    const std::string& email = tokens[3];
+    if (username != m_username || m_db->VerifyLogin(username, password) != m_userId) {
+        SendLine("ERR wrong username or password");
+        return;
+    }
     if (m_db->SetEmail(m_userId, email))
         SendLine("OK");
     else
         SendLine("ERR Failed to set email");
+}
+
+// ---------------------------------------------------------------------------
+// GET_EMAIL <username>
+// ---------------------------------------------------------------------------
+
+void ClientSession::HandleGetEmail(const std::string& line) {
+    if (m_userId < 0) { SendLine("ERR Not logged in"); return; }
+    auto tokens = SplitLine(line);
+    if (tokens.size() < 2) {
+        SendLine("ERR GET_EMAIL requires username");
+        return;
+    }
+    const std::string& username = tokens[1];
+    if (username != m_username) {
+        SendLine("ERR wrong username");
+        return;
+    }
+    SendLine("OK " + m_db->GetEmail(m_userId));
 }

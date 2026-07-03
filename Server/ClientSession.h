@@ -47,6 +47,7 @@ private:
     void HandleModifyTime(const std::string& line);
     void HandleQuery(const std::string& line);
     void HandleSetEmail(const std::string& line);
+    void HandleGetEmail(const std::string& line);
 
     // Dispatch a received line to the appropriate handler
     void Dispatch(const std::string& line);

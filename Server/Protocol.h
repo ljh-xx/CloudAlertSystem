@@ -10,7 +10,8 @@
 #define CMD_MODIFY_PRICE    "MODIFY_PRICE"
 #define CMD_MODIFY_TIME     "MODIFY_TIME"
 #define CMD_QUERY           "QUERY"
-#define CMD_SET_EMAIL       "SET_EMAIL"
+#define CMD_SET_EMAIL       "SET_EMAIL"       // SET_EMAIL <username> <password> <email>
+#define CMD_GET_EMAIL       "GET_EMAIL"
 
 // ---- Server -> Client responses ----
 #define RESP_OK             "OK"
