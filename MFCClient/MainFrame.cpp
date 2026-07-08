@@ -8,6 +8,8 @@
 #include <cctype>
 #include <chrono>
 #include <cstdlib>
+#include <iomanip>
+#include <set>
 #include <sstream>
 
 #define SERVER_HOST "127.0.0.1"
@@ -21,6 +23,7 @@ enum ControlId {
     IDC_EDIT_ID,
     IDC_COMBO_ALERT_TYPE,
     IDC_EDIT_CONTRACT,
+    IDC_BTN_PICK_CONTRACT,
     IDC_EDIT_PRICE,
     IDC_COMBO_COND,
     IDC_EDIT_TIME,
@@ -30,6 +33,7 @@ enum ControlId {
     IDC_BTN_MOD_TIME,
     IDC_BTN_DELETE,
     IDC_COMBO_STATUS,
+    IDC_BTN_VIEW_DELETED,
     IDC_BTN_REFRESH,
     IDC_BTN_CANCEL_EDIT,
     IDC_USER_INFO,
@@ -44,6 +48,7 @@ static const UINT WM_APP_TRIGGERED = WM_APP + 1;
 static const UINT WM_APP_DISCONNECTED = WM_APP + 2;
 static const UINT WM_APP_POST_LOGIN = WM_APP + 3;
 static const UINT_PTR TIMER_TOAST = 3001;
+static const UINT_PTR TIMER_PRICE_REFRESH = 3002;
 
 static std::vector<std::string> Split(const std::string& text) {
     std::istringstream iss(text);
@@ -55,7 +60,7 @@ static std::vector<std::string> Split(const std::string& text) {
 
 CMainFrame::CMainFrame()
     : m_connected(false), m_closing(false), m_editMode(false),
-      m_editAlertType(ALERT_TYPE_PRICE), m_recvThread(nullptr) {
+      m_showDeletedOnly(false), m_editAlertType(ALERT_TYPE_PRICE), m_recvThread(nullptr) {
     Create(nullptr, "Cloud Alert MFC Client",
            WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
            CRect(80, 60, 1260, 820));
@@ -81,6 +86,7 @@ bool CMainFrame::LoginUser(const CString& user, const CString& password, std::st
     std::vector<std::string> lines;
     if (SendCommand((LPCSTR)cmd, false, lines) && IsOk(lines)) {
         m_username = user;
+        m_showDeletedOnly = false;
         if (!StartReceiver()) {
             m_username.Empty();
             error = "Login succeeded, but receiver thread failed to start.";
@@ -163,11 +169,12 @@ int CMainFrame::OnCreate(LPCREATESTRUCT lpCreateStruct) {
     m_list.InsertColumn(0, "ID", LVCFMT_LEFT, 55);
     m_list.InsertColumn(1, "Type", LVCFMT_LEFT, 70);
     m_list.InsertColumn(2, "Contract", LVCFMT_LEFT, 95);
-    m_list.InsertColumn(3, "Price", LVCFMT_RIGHT, 90);
-    m_list.InsertColumn(4, "Cond", LVCFMT_LEFT, 70);
-    m_list.InsertColumn(5, "Time", LVCFMT_LEFT, 90);
-    m_list.InsertColumn(6, "Status", LVCFMT_LEFT, 90);
-    m_list.InsertColumn(7, "Created", LVCFMT_LEFT, 175);
+    m_list.InsertColumn(3, "Trigger", LVCFMT_RIGHT, 90);
+    m_list.InsertColumn(4, "Current", LVCFMT_RIGHT, 90);
+    m_list.InsertColumn(5, "Cond", LVCFMT_LEFT, 70);
+    m_list.InsertColumn(6, "Time", LVCFMT_LEFT, 90);
+    m_list.InsertColumn(7, "Status", LVCFMT_LEFT, 90);
+    m_list.InsertColumn(8, "Created", LVCFMT_LEFT, 165);
 
     m_panelTitle.Create("New Alert", WS_CHILD | WS_VISIBLE, CRect(), this);
     m_addGroupTitle.Create("", WS_CHILD | WS_VISIBLE, CRect(), this);
@@ -184,6 +191,8 @@ int CMainFrame::OnCreate(LPCREATESTRUCT lpCreateStruct) {
     m_typeCombo.AddString("Time Alert");
     m_typeCombo.SetCurSel(0);
     m_contractEdit.Create(WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL, CRect(), this, IDC_EDIT_CONTRACT);
+    m_contractPickBtn.Create("Contracts", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | BS_OWNERDRAW, CRect(), this, IDC_BTN_PICK_CONTRACT);
+    m_contractPickBtn.SetColors(RGB(238, 242, 247), RGB(28, 34, 44), RGB(166, 176, 190));
     m_priceEdit.Create(WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL, CRect(), this, IDC_EDIT_PRICE);
     m_timeEdit.Create(WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL, CRect(), this, IDC_EDIT_TIME);
     m_contractEdit.SetWindowText("rb2609");
@@ -209,12 +218,14 @@ int CMainFrame::OnCreate(LPCREATESTRUCT lpCreateStruct) {
     m_statusCombo.AddString("All");
     m_statusCombo.AddString("Pending");
     m_statusCombo.AddString("Triggered");
-    m_statusCombo.AddString("Deleted");
     m_statusCombo.SetCurSel(0);
+    m_deletedViewBtn.Create("Deleted Only", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | BS_OWNERDRAW, CRect(), this, IDC_BTN_VIEW_DELETED);
+    m_deletedViewBtn.SetColors(RGB(255, 241, 241), RGB(145, 38, 38), RGB(230, 160, 160));
     m_refreshBtn.Create("Refresh", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | BS_OWNERDRAW, CRect(), this, IDC_BTN_REFRESH);
     m_refreshBtn.SetColors(RGB(238, 242, 247), RGB(28, 34, 44), RGB(166, 176, 190));
     m_statusText.Create("Disconnected", WS_CHILD | WS_VISIBLE, CRect(), this, IDC_STATUS_TEXT);
     m_toastText.Create("", WS_CHILD | WS_BORDER | SS_CENTER, CRect(), this, IDC_TOAST_TEXT);
+    m_toastText.ShowWindow(SW_HIDE);
 
     EnterAddMode();
     UpdateButtonState();
@@ -241,11 +252,12 @@ void CMainFrame::OnSize(UINT nType, int cx, int cy) {
     m_logoutBtn.MoveWindow(pad + 524, 72, 104, 32);
 
     m_listTitle.MoveWindow(pad, 118, 180, 24);
-    m_statusCombo.MoveWindow(pad + leftW - 260, 114, 150, 200);
+    m_statusCombo.MoveWindow(pad + leftW - 372, 114, 128, 200);
+    m_deletedViewBtn.MoveWindow(pad + leftW - 234, 114, 124, 32);
     m_refreshBtn.MoveWindow(pad + leftW - 100, 114, 100, 32);
     m_list.MoveWindow(pad, 154, leftW, std::max(260, cy - 214));
     m_statusText.MoveWindow(pad, cy - 38, leftW + panelW + gap, 24);
-    m_toastText.MoveWindow(std::max(pad, cx - 360), 106, 330, 30);
+    m_toastText.MoveWindow(panelX, std::max(154, cy - 76), panelW, 30);
 
     int y = 154;
     m_panelTitle.MoveWindow(panelX, y, panelW, 28);
@@ -255,7 +267,10 @@ void CMainFrame::OnSize(UINT nType, int cx, int cy) {
         y += 44;
     }
     MoveLabeled(m_typeLabel, m_typeCombo, panelX, y, panelW); y += 44;
-    MoveLabeled(m_contractLabel, m_contractEdit, panelX, y, panelW); y += 44;
+    m_contractLabel.MoveWindow(panelX, y + 5, 86, row);
+    m_contractEdit.MoveWindow(panelX + 95, y, panelW - 205, 30);
+    m_contractPickBtn.MoveWindow(panelX + panelW - 102, y, 102, 30);
+    y += 44;
     if (GetSelectedAlertType() == ALERT_TYPE_PRICE) {
         MoveLabeled(m_priceLabel, m_priceEdit, panelX, y, panelW); y += 44;
         m_condLabel.MoveWindow(panelX, y + 5, 78, row);
@@ -294,9 +309,11 @@ void CMainFrame::OnSetEmail() {
 }
 
 void CMainFrame::OnLogout() {
+    KillTimer(TIMER_PRICE_REFRESH);
     StopConnection();
     m_username.Empty();
     m_email.Empty();
+    m_showDeletedOnly = false;
     m_list.DeleteAllItems();
     EnterAddMode();
     SetStatus("Logged out.");
@@ -305,6 +322,7 @@ void CMainFrame::OnLogout() {
     if (ShowLoginDialog()) {
         ShowWindow(SW_SHOW);
         UpdateWindow();
+        BeginPostLoginRefresh();
     } else {
         PostMessage(WM_CLOSE);
     }
@@ -384,7 +402,69 @@ void CMainFrame::OnDeleteAlert() {
 }
 
 void CMainFrame::OnRefresh() {
+    RefreshEmail();
     RefreshAlerts();
+}
+
+void CMainFrame::OnViewDeleted() {
+    if (!m_connected || m_username.IsEmpty()) return;
+    m_showDeletedOnly = !m_showDeletedOnly;
+    m_statusCombo.SetCurSel(0);
+    UpdateButtonState();
+    RefreshAlerts();
+    EnterAddMode();
+}
+
+void CMainFrame::OnStatusFilterChanged() {
+    if (!m_connected || m_username.IsEmpty()) return;
+    m_showDeletedOnly = false;
+    UpdateButtonState();
+    RefreshAlerts();
+}
+
+void CMainFrame::OnPickContract() {
+    static const struct {
+        const char* label;
+        const char* code;
+    } contracts[] = {
+        { "Rebar - rb2609", "rb2609" },
+        { "Rebar - rb2607", "rb2607" },
+        { "Hot Coil - hc2609", "hc2609" },
+        { "Iron Ore - i2609", "i2609" },
+        { "Methanol - MA609", "MA609" },
+        { "PTA - TA609", "TA609" },
+        { "Egg - jd2609", "jd2609" },
+        { "Soymeal - m2609", "m2609" },
+        { "Soy Oil - y2609", "y2609" },
+        { "Palm Oil - p2609", "p2609" },
+        { "Corn - c2609", "c2609" },
+        { "Cotton - CF609", "CF609" },
+        { "Sugar - SR609", "SR609" },
+        { "Gold - au2612", "au2612" },
+        { "Silver - ag2612", "ag2612" },
+    };
+
+    CMenu menu;
+    if (!menu.CreatePopupMenu()) return;
+
+    const UINT baseId = 7000;
+    for (int i = 0; i < static_cast<int>(sizeof(contracts) / sizeof(contracts[0])); ++i) {
+        menu.AppendMenu(MF_STRING | MF_ENABLED, baseId + i, contracts[i].label);
+    }
+
+    CRect rc;
+    m_contractPickBtn.GetWindowRect(&rc);
+    UINT cmd = menu.TrackPopupMenu(
+        TPM_LEFTALIGN | TPM_TOPALIGN | TPM_RETURNCMD | TPM_NONOTIFY,
+        rc.left,
+        rc.bottom + 2,
+        this);
+    if (cmd >= baseId && cmd < baseId + sizeof(contracts) / sizeof(contracts[0])) {
+        int index = static_cast<int>(cmd - baseId);
+        m_contractEdit.SetWindowText(contracts[index].code);
+        m_contractEdit.SetFocus();
+        ShowToast(std::string("Contract selected: ") + contracts[index].code);
+    }
 }
 
 void CMainFrame::OnAlertTypeChanged() {
@@ -417,16 +497,19 @@ LRESULT CMainFrame::OnPostLogin(WPARAM, LPARAM) {
     SetStatus("Loading account data...");
     RefreshEmail();
     RefreshAlerts();
+    SetTimer(TIMER_PRICE_REFRESH, 30000, nullptr);
     UpdateButtonState();
     return 0;
 }
 
 LRESULT CMainFrame::OnDisconnected(WPARAM, LPARAM) {
     if (m_closing) return 0;
+    KillTimer(TIMER_PRICE_REFRESH);
     SetStatus("Disconnected from server. Please check whether Server.exe is still running.");
     m_connected = false;
     m_username.Empty();
     m_email.Empty();
+    m_showDeletedOnly = false;
     m_list.DeleteAllItems();
     EnterAddMode();
     UpdateButtonState();
@@ -434,6 +517,7 @@ LRESULT CMainFrame::OnDisconnected(WPARAM, LPARAM) {
 }
 
 void CMainFrame::OnClose() {
+    KillTimer(TIMER_PRICE_REFRESH);
     StopConnection();
     CFrameWnd::OnClose();
 }
@@ -444,10 +528,17 @@ void CMainFrame::OnTimer(UINT_PTR idEvent) {
         m_toastText.ShowWindow(SW_HIDE);
         return;
     }
+    if (idEvent == TIMER_PRICE_REFRESH) {
+        if (m_connected && !m_username.IsEmpty()) {
+            RefreshCurrentPrices();
+        }
+        return;
+    }
     CFrameWnd::OnTimer(idEvent);
 }
 
 void CMainFrame::EnterAddMode() {
+    m_toastText.ShowWindow(SW_HIDE);
     m_editMode = false;
     m_editAlertType = ALERT_TYPE_PRICE;
     m_idEdit.SetWindowText("");
@@ -464,6 +555,7 @@ void CMainFrame::EnterAddMode() {
 }
 
 void CMainFrame::EnterEditMode(int item) {
+    m_toastText.ShowWindow(SW_HIDE);
     if (item < 0 || item >= m_list.GetItemCount()) return;
 
     m_editMode = true;
@@ -475,13 +567,13 @@ void CMainFrame::EnterEditMode(int item) {
     m_contractEdit.SetWindowText(m_list.GetItemText(item, 2));
     if (m_editAlertType == ALERT_TYPE_PRICE) {
         m_priceEdit.SetWindowText(m_list.GetItemText(item, 3));
-        CString cond = m_list.GetItemText(item, 4);
+        CString cond = m_list.GetItemText(item, 5);
         m_condCombo.SetCurSel(cond.Find("<=") >= 0 ? 1 : 0);
-        m_timeEdit.SetWindowText("09:30:00");
+        m_timeEdit.SetWindowText("");
     } else {
         m_priceEdit.SetWindowText("");
         m_condCombo.SetCurSel(0);
-        m_timeEdit.SetWindowText(m_list.GetItemText(item, 5));
+        m_timeEdit.SetWindowText(m_list.GetItemText(item, 6));
     }
     UpdateEditorMode();
 }
@@ -510,33 +602,78 @@ void CMainFrame::UpdateEditorMode() {
     CRect rc;
     GetClientRect(&rc);
     OnSize(SIZE_RESTORED, rc.Width(), rc.Height());
+    RedrawEditorArea();
 }
 
 void CMainFrame::UpdateEditorVisibility() {
     const BOOL editing = m_editMode ? TRUE : FALSE;
     const BOOL priceMode = (GetSelectedAlertType() == ALERT_TYPE_PRICE) ? TRUE : FALSE;
 
-    m_addGroupTitle.ShowWindow(SW_HIDE);
-    m_editGroupTitle.ShowWindow(SW_HIDE);
+    HideEditorControl(m_addGroupTitle);
+    HideEditorControl(m_editGroupTitle);
     m_idLabel.ShowWindow(editing ? SW_SHOW : SW_HIDE);
     m_idEdit.ShowWindow(editing ? SW_SHOW : SW_HIDE);
     m_typeLabel.ShowWindow(SW_SHOW);
     m_typeCombo.ShowWindow(SW_SHOW);
     m_contractLabel.ShowWindow(SW_SHOW);
     m_contractEdit.ShowWindow(SW_SHOW);
+    m_contractPickBtn.ShowWindow(SW_SHOW);
 
-    m_priceLabel.ShowWindow(priceMode ? SW_SHOW : SW_HIDE);
-    m_priceEdit.ShowWindow(priceMode ? SW_SHOW : SW_HIDE);
-    m_condLabel.ShowWindow(priceMode ? SW_SHOW : SW_HIDE);
-    m_condCombo.ShowWindow(priceMode ? SW_SHOW : SW_HIDE);
-    m_timeLabel.ShowWindow(priceMode ? SW_HIDE : SW_SHOW);
-    m_timeEdit.ShowWindow(priceMode ? SW_HIDE : SW_SHOW);
+    if (priceMode) {
+        m_priceLabel.ShowWindow(SW_SHOW);
+        m_priceEdit.ShowWindow(SW_SHOW);
+        m_condLabel.ShowWindow(SW_SHOW);
+        m_condCombo.ShowWindow(SW_SHOW);
+        HideEditorControl(m_timeLabel);
+        HideEditorControl(m_timeEdit);
+    } else {
+        HideEditorControl(m_priceLabel);
+        HideEditorControl(m_priceEdit);
+        HideEditorControl(m_condLabel);
+        HideEditorControl(m_condCombo);
+        m_timeLabel.ShowWindow(SW_SHOW);
+        m_timeEdit.ShowWindow(SW_SHOW);
+    }
 
-    m_addPriceBtn.ShowWindow(editing ? SW_HIDE : SW_SHOW);
-    m_addTimeBtn.ShowWindow(SW_HIDE);
-    m_modPriceBtn.ShowWindow(editing ? SW_SHOW : SW_HIDE);
-    m_modTimeBtn.ShowWindow(editing ? SW_SHOW : SW_HIDE);
-    m_deleteBtn.ShowWindow(editing ? SW_SHOW : SW_HIDE);
+    if (editing) {
+        HideEditorControl(m_addPriceBtn);
+        HideEditorControl(m_addTimeBtn);
+        m_modPriceBtn.ShowWindow(SW_SHOW);
+        m_modTimeBtn.ShowWindow(SW_SHOW);
+        m_deleteBtn.ShowWindow(SW_SHOW);
+    } else {
+        m_addPriceBtn.ShowWindow(SW_SHOW);
+        HideEditorControl(m_addTimeBtn);
+        HideEditorControl(m_modPriceBtn);
+        HideEditorControl(m_modTimeBtn);
+        HideEditorControl(m_deleteBtn);
+    }
+    RedrawEditorArea();
+}
+
+void CMainFrame::HideEditorControl(CWnd& ctrl) {
+    if (!::IsWindow(ctrl.GetSafeHwnd()) || !ctrl.IsWindowVisible()) return;
+
+    CRect rc;
+    ctrl.GetWindowRect(&rc);
+    ScreenToClient(&rc);
+    ctrl.ShowWindow(SW_HIDE);
+    InvalidateRect(&rc, TRUE);
+}
+
+void CMainFrame::RedrawEditorArea() {
+    if (!::IsWindow(GetSafeHwnd()) || !::IsWindow(m_panelTitle.GetSafeHwnd())) return;
+
+    CRect panel;
+    m_panelTitle.GetWindowRect(&panel);
+    ScreenToClient(&panel);
+    panel.left -= 4;
+    panel.top -= 4;
+    CRect client;
+    GetClientRect(&client);
+    panel.right = client.right - 18;
+    panel.bottom = client.bottom - 48;
+    RedrawWindow(&panel, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW);
 }
 
 int CMainFrame::GetSelectedAlertType() {
@@ -545,11 +682,12 @@ int CMainFrame::GetSelectedAlertType() {
 
 void CMainFrame::RefreshAlerts() {
     if (!EnsureLoggedIn()) return;
+    m_listTitle.SetWindowText(m_showDeletedOnly ? "Deleted Alerts" : "Alert List");
     int status = -1;
     int sel = m_statusCombo.GetCurSel();
-    if (sel == 1) status = STATUS_PENDING;
+    if (m_showDeletedOnly) status = STATUS_DELETED;
+    else if (sel == 1) status = STATUS_PENDING;
     else if (sel == 2) status = STATUS_TRIGGERED;
-    else if (sel == 3) status = STATUS_DELETED;
 
     CString cmd;
     cmd.Format("QUERY %s %d", (LPCSTR)m_username, status);
@@ -561,11 +699,61 @@ void CMainFrame::RefreshAlerts() {
 
     m_list.DeleteAllItems();
     for (const auto& line : lines) {
-        if (line.rfind("ALERT ", 0) == 0) AddAlertLine(line);
+        if (line.rfind("ALERT ", 0) != 0) continue;
+        auto fields = Split(line);
+        if (!m_showDeletedOnly && fields.size() > 7 && fields[7] == "2") continue;
+        AddAlertLine(line);
     }
+    RefreshCurrentPrices();
     CString s;
-    s.Format("Loaded %d alert(s).", m_list.GetItemCount());
+    s.Format(m_showDeletedOnly ? "Loaded %d deleted alert(s)." : "Loaded %d alert(s).", m_list.GetItemCount());
     SetStatus((LPCSTR)s);
+}
+
+void CMainFrame::RefreshCurrentPrices() {
+    if (m_username.IsEmpty() || !m_connected || m_list.GetItemCount() == 0) return;
+
+    std::set<std::string> contracts;
+    for (int i = 0; i < m_list.GetItemCount(); ++i) {
+        CString contract = m_list.GetItemText(i, 2);
+        contract.Trim();
+        if (!contract.IsEmpty()) contracts.insert((LPCSTR)contract);
+    }
+    if (contracts.empty()) return;
+
+    CString cmd = "GET_PRICES";
+    for (const auto& contract : contracts) {
+        cmd += " ";
+        cmd += contract.c_str();
+    }
+
+    std::vector<std::string> lines;
+    if (!SendCommand((LPCSTR)cmd, true, lines)) {
+        SetStatus("Current prices unavailable: price query timed out.");
+        return;
+    }
+    if (!lines.empty() && lines.front().rfind(RESP_ERR, 0) == 0) {
+        SetStatus("Current prices unavailable: please restart the updated Server.exe.");
+        return;
+    }
+
+    int updated = 0;
+    for (const auto& line : lines) {
+        if (line.rfind("PRICE ", 0) != 0) continue;
+        auto fields = Split(line);
+        if (fields.size() < 3) continue;
+        CString contract = fields[1].c_str();
+        CString price = FormatPriceText(fields[2]).c_str();
+        for (int i = 0; i < m_list.GetItemCount(); ++i) {
+            if (m_list.GetItemText(i, 2) == contract) {
+                m_list.SetItemText(i, 4, price);
+                if (price != "-") ++updated;
+            }
+        }
+    }
+    if (updated == 0) {
+        SetStatus("Current prices waiting for CTP market data ticks.");
+    }
 }
 
 void CMainFrame::RefreshEmail() {
@@ -576,7 +764,6 @@ void CMainFrame::RefreshEmail() {
     if (!SendCommand((LPCSTR)cmd, false, lines) || lines.empty() || !IsOk(lines)) {
         m_email.Empty();
         UpdateButtonState();
-        SetStatus("Email not loaded. Alert list is still available.");
         return;
     }
 
@@ -596,14 +783,15 @@ void CMainFrame::AddAlertLine(const std::string& line) {
     int row = m_list.InsertItem(m_list.GetItemCount(), t[1].c_str());
     m_list.SetItemText(row, 1, t[2] == "0" ? "Price" : "Time");
     m_list.SetItemText(row, 2, t[3].c_str());
-    m_list.SetItemText(row, 3, t[4].c_str());
+    m_list.SetItemText(row, 3, FormatPriceText(t[4]).c_str());
+    m_list.SetItemText(row, 4, "-");
     std::string condText = (t[5] == "1") ? "<=" : ">=";
-    m_list.SetItemText(row, 4, condText.c_str());
-    m_list.SetItemText(row, 5, t[6].c_str());
-    m_list.SetItemText(row, 6, StatusName(t[7]).c_str());
+    m_list.SetItemText(row, 5, condText.c_str());
+    m_list.SetItemText(row, 6, t[6] == "-" ? "" : t[6].c_str());
+    m_list.SetItemText(row, 7, StatusName(t[7]).c_str());
     std::string created = t[8];
     if (t.size() > 9) created += " " + t[9];
-    m_list.SetItemText(row, 7, created.c_str());
+    m_list.SetItemText(row, 8, created.c_str());
 }
 
 std::string CMainFrame::StatusName(const std::string& s) const {
@@ -611,6 +799,16 @@ std::string CMainFrame::StatusName(const std::string& s) const {
     if (s == "1") return "Triggered";
     if (s == "2") return "Deleted";
     return s;
+}
+
+std::string CMainFrame::FormatPriceText(const std::string& raw) const {
+    if (raw.empty() || raw == "-") return "-";
+    char* end = nullptr;
+    double value = std::strtod(raw.c_str(), &end);
+    if (end == raw.c_str() || *end != '\0') return raw;
+    std::ostringstream oss;
+    oss << std::fixed << std::setprecision(2) << value;
+    return oss.str();
 }
 
 bool CMainFrame::ValidateContract(const CString& contract) {
@@ -783,6 +981,9 @@ void CMainFrame::UpdateButtonState() {
     m_modPriceBtn.EnableWindow(loggedIn && m_editMode);
     m_modTimeBtn.EnableWindow(loggedIn && m_editMode);
     m_deleteBtn.EnableWindow(loggedIn && m_editMode);
+    m_contractPickBtn.EnableWindow(loggedIn);
+    m_deletedViewBtn.EnableWindow(loggedIn);
+    m_deletedViewBtn.SetWindowText(m_showDeletedOnly ? "Active List" : "Deleted Only");
     m_refreshBtn.EnableWindow(loggedIn);
     m_logoutBtn.EnableWindow(loggedIn);
 
@@ -861,6 +1062,9 @@ BEGIN_MESSAGE_MAP(CMainFrame, CFrameWnd)
     ON_BN_CLICKED(IDC_BTN_CANCEL_EDIT, &CMainFrame::OnModifyTime)
     ON_BN_CLICKED(IDC_BTN_DELETE, &CMainFrame::OnDeleteAlert)
     ON_BN_CLICKED(IDC_BTN_REFRESH, &CMainFrame::OnRefresh)
+    ON_BN_CLICKED(IDC_BTN_VIEW_DELETED, &CMainFrame::OnViewDeleted)
+    ON_BN_CLICKED(IDC_BTN_PICK_CONTRACT, &CMainFrame::OnPickContract)
+    ON_CBN_SELCHANGE(IDC_COMBO_STATUS, &CMainFrame::OnStatusFilterChanged)
     ON_CBN_SELCHANGE(IDC_COMBO_ALERT_TYPE, &CMainFrame::OnAlertTypeChanged)
     ON_NOTIFY(LVN_ITEMCHANGED, IDC_LIST_ALERTS, &CMainFrame::OnListItemChanged)
     ON_MESSAGE(WM_APP_POST_LOGIN, &CMainFrame::OnPostLogin)

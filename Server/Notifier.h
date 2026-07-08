@@ -7,6 +7,7 @@
 #include <winsock2.h>
 #include <windows.h>
 #include <map>
+#include <queue>
 #include <string>
 
 class CEmailSendUnitInterFace;
@@ -33,8 +34,21 @@ public:
     bool SendToUser(int userId, const std::string& data);
 
 private:
+    struct NotifyTask {
+        int userId;
+        std::string msg;
+        std::string emailAddress;
+        std::string subject;
+        std::string body;
+    };
+
     CRITICAL_SECTION m_cs;
     std::map<int, SOCKET> m_userSockets; // user_id -> socket
+    CRITICAL_SECTION m_queueCs;
+    std::queue<NotifyTask> m_tasks;
+    HANDLE m_workerThread;
+    HANDLE m_taskEvent;
+    bool m_stopping;
 
     HMODULE                  m_hEmailDll;
     CEmailSendUnitInterFace* m_pEmailUnit;
@@ -51,4 +65,6 @@ private:
     void SendEmail(const std::string& toAddress,
                    const std::string& subject,
                    const std::string& body);
+    void ProcessNotifyTask(const NotifyTask& task);
+    static DWORD WINAPI WorkerThreadProc(LPVOID pParam);
 };

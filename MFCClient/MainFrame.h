@@ -57,6 +57,7 @@ protected:
     CEdit m_idEdit;
     CComboBox m_typeCombo;
     CEdit m_contractEdit;
+    CStyledButton m_contractPickBtn;
     CEdit m_priceEdit;
     CComboBox m_condCombo;
     CEdit m_timeEdit;
@@ -66,6 +67,7 @@ protected:
     CStyledButton m_modTimeBtn;
     CStyledButton m_deleteBtn;
     CComboBox m_statusCombo;
+    CStyledButton m_deletedViewBtn;
     CStyledButton m_refreshBtn;
     CStatic m_statusText;
     CStatic m_toastText;
@@ -74,6 +76,7 @@ protected:
     bool m_connected;
     bool m_closing;
     bool m_editMode;
+    bool m_showDeletedOnly;
     int m_editAlertType;
     CString m_username;
     CString m_email;
@@ -93,6 +96,9 @@ protected:
     afx_msg void OnModifyTime();
     afx_msg void OnDeleteAlert();
     afx_msg void OnRefresh();
+    afx_msg void OnViewDeleted();
+    afx_msg void OnStatusFilterChanged();
+    afx_msg void OnPickContract();
     afx_msg void OnAlertTypeChanged();
     afx_msg void OnListItemChanged(NMHDR* pNMHDR, LRESULT* pResult);
     afx_msg LRESULT OnPostLogin(WPARAM, LPARAM);
@@ -109,11 +115,15 @@ protected:
     void EnterEditMode(int item);
     void UpdateEditorMode();
     void UpdateEditorVisibility();
+    void HideEditorControl(CWnd& ctrl);
+    void RedrawEditorArea();
     int GetSelectedAlertType();
     void RefreshAlerts();
     void RefreshEmail();
+    void RefreshCurrentPrices();
     void AddAlertLine(const std::string& line);
     std::string StatusName(const std::string& s) const;
+    std::string FormatPriceText(const std::string& raw) const;
     bool ValidateContract(const CString& contract);
     bool ValidatePrice(const CString& price);
     bool ValidateAlertId(const CString& id);

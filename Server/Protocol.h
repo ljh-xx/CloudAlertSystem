@@ -12,12 +12,15 @@
 #define CMD_QUERY           "QUERY"
 #define CMD_SET_EMAIL       "SET_EMAIL"       // SET_EMAIL <username> <password> <email>
 #define CMD_GET_EMAIL       "GET_EMAIL"
+#define CMD_GET_PRICE       "GET_PRICE"
+#define CMD_GET_PRICES      "GET_PRICES"
 
 // ---- Server -> Client responses ----
 #define RESP_OK             "OK"
 #define RESP_ERR            "ERR"
 #define RESP_TRIGGERED      "TRIGGERED"
 #define RESP_ALERT          "ALERT"
+#define RESP_PRICE          "PRICE"
 #define RESP_END            "END"
 
 // ---- Alert types ----

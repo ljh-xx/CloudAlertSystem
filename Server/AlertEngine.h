@@ -5,6 +5,8 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+#include <map>
+#include <mutex>
 #include <string>
 #include <vector>
 #include "AlertDB.h"
@@ -23,6 +25,9 @@ public:
 
     // Called by CTPMdHandler when a market data tick arrives
     void CheckPriceAlert(const std::string& contract, double lastPrice);
+
+    // Read the latest cached market price for a contract.
+    bool GetLastPrice(const std::string& contract, double& lastPrice) const;
 
     // Called once per second by the timer thread
     void CheckTimeAlerts();
@@ -50,6 +55,8 @@ private:
 
     HANDLE  m_timerThread;
     bool    m_timerRunning;
+    mutable std::mutex m_priceMtx;
+    std::map<std::string, double> m_lastPrices;
 
     // Build and dispatch a TRIGGERED protocol line
     void FireAlert(const AlertRecord& rec,

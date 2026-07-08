@@ -48,6 +48,7 @@ private:
     void HandleQuery(const std::string& line);
     void HandleSetEmail(const std::string& line);
     void HandleGetEmail(const std::string& line);
+    void HandleGetPrices(const std::string& line);
 
     // Dispatch a received line to the appropriate handler
     void Dispatch(const std::string& line);

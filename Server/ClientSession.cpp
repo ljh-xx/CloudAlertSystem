@@ -118,6 +118,8 @@ void ClientSession::Dispatch(const std::string& line) {
     else if (cmd == CMD_QUERY)        HandleQuery(line);
     else if (cmd == CMD_SET_EMAIL)    HandleSetEmail(line);
     else if (cmd == CMD_GET_EMAIL)    HandleGetEmail(line);
+    else if (cmd == CMD_GET_PRICE)    HandleGetPrices(line);
+    else if (cmd == CMD_GET_PRICES)   HandleGetPrices(line);
     else {
         SendLine("ERR Unknown command");
     }
@@ -313,7 +315,7 @@ void ClientSession::HandleQuery(const std::string& line) {
     for (const auto& r : records) {
         char buf[512];
         _snprintf_s(buf, sizeof(buf),
-            "ALERT %d %d %s %.4f %d %s %d %s",
+            "ALERT %d %d %s %.2f %d %s %d %s",
             r.id, r.alert_type, r.contract.c_str(),
             r.trigger_price, r.condition,
             r.trigger_time.empty() ? "-" : r.trigger_time.c_str(),
@@ -364,4 +366,35 @@ void ClientSession::HandleGetEmail(const std::string& line) {
         return;
     }
     SendLine("OK " + m_db->GetEmail(m_userId));
+}
+
+// ---------------------------------------------------------------------------
+// GET_PRICE <contract>
+// GET_PRICES <contract1> <contract2> ...
+// Response: PRICE <contract> <last_price|-> lines followed by END
+// ---------------------------------------------------------------------------
+
+void ClientSession::HandleGetPrices(const std::string& line) {
+    if (m_userId < 0) { SendLine("ERR Not logged in"); return; }
+    auto tokens = SplitLine(line);
+    if (tokens.size() < 2) {
+        SendLine("ERR GET_PRICES requires at least one contract");
+        return;
+    }
+
+    for (size_t i = 1; i < tokens.size(); ++i) {
+        const std::string& contract = tokens[i];
+        if (contract.empty()) continue;
+        m_engine->SubscribeContract(contract);
+
+        double lastPrice = 0.0;
+        char buf[256];
+        if (m_engine->GetLastPrice(contract, lastPrice)) {
+            _snprintf_s(buf, sizeof(buf), "PRICE %s %.2f", contract.c_str(), lastPrice);
+        } else {
+            _snprintf_s(buf, sizeof(buf), "PRICE %s -", contract.c_str());
+        }
+        SendLine(std::string(buf));
+    }
+    SendLine("END");
 }

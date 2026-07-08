@@ -70,6 +70,10 @@ void CLoginDlg::SetStatusText(const std::string& text) {
     if (::IsWindow(m_statusText.GetSafeHwnd())) m_statusText.SetWindowText(text.c_str());
 }
 
+void CLoginDlg::OnOK() {
+    OnLogin();
+}
+
 void CLoginDlg::OnLogin() {
     CString user;
     CString password;

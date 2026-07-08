@@ -25,6 +25,7 @@ public:
 
         frame->ShowWindow(SW_SHOW);
         frame->UpdateWindow();
+        frame->BeginPostLoginRefresh();
         return TRUE;
     }
 };

@@ -50,6 +50,11 @@ void AlertEngine::SetCtpHandler(CTPMdHandler* ctpHandler) {
 
 void AlertEngine::CheckPriceAlert(const std::string& contract,
                                   double lastPrice) {
+    if (lastPrice > 0.0 && lastPrice < 1.0e100) {
+        std::lock_guard<std::mutex> lk(m_priceMtx);
+        m_lastPrices[contract] = lastPrice;
+    }
+
     std::vector<AlertRecord> pending =
         m_db->GetPendingPriceAlerts(contract);
 
@@ -67,6 +72,14 @@ void AlertEngine::CheckPriceAlert(const std::string& contract,
             }
         }
     }
+}
+
+bool AlertEngine::GetLastPrice(const std::string& contract, double& lastPrice) const {
+    std::lock_guard<std::mutex> lk(m_priceMtx);
+    auto it = m_lastPrices.find(contract);
+    if (it == m_lastPrices.end()) return false;
+    lastPrice = it->second;
+    return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -96,7 +109,7 @@ void AlertEngine::FireAlert(const AlertRecord& rec,
     // Build TRIGGERED protocol line
     char msgBuf[256];
     _snprintf_s(msgBuf, sizeof(msgBuf),
-        "TRIGGERED %d %s %.4f %s\n",
+        "TRIGGERED %d %s %.2f %s\n",
         rec.id,
         rec.contract.c_str(),
         lastPrice,
@@ -114,7 +127,7 @@ void AlertEngine::FireAlert(const AlertRecord& rec,
         "Alert Triggered: %s", rec.contract.c_str());
     if (rec.alert_type == ALERT_TYPE_PRICE) {
         _snprintf_s(bodyBuf, sizeof(bodyBuf),
-            "Alert ID %d: %s reached %.4f at %s",
+            "Alert ID %d: %s reached %.2f at %s",
             rec.id, rec.contract.c_str(), lastPrice, timestamp.c_str());
     } else {
         _snprintf_s(bodyBuf, sizeof(bodyBuf),

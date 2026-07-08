@@ -33,6 +33,7 @@ protected:
     CStyledButton m_cancelBtn;
 
     BOOL OnInitDialog() override;
+    void OnOK() override;
     void BuildTemplate();
     void SetStatusText(const std::string& text);
 

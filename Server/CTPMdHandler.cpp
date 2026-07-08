@@ -26,6 +26,13 @@ CTPMdHandler::~CTPMdHandler() {
 // ---------------------------------------------------------------------------
 
 bool CTPMdHandler::Connect(const char* frontAddr) {
+    if (sizeof(TThostFtdcPriceType) < sizeof(double)) {
+        fprintf(stderr,
+            "[CTP] Real market data is unavailable: bundled CTP headers are stubs. "
+            "Replace Server/ctp headers and link the official thostmduserapi_se import library.\n");
+        return false;
+    }
+
     // CTP creates a flow directory; use current directory
     m_pApi = CThostFtdcMdApi::CreateFtdcMdApi("./ctpflow/", false, false);
     if (!m_pApi) {

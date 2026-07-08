@@ -1,6 +1,10 @@
 #pragma once
 // AlertDB.h - Database access layer for Cloud Alert System
 
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
 #include <string>
 #include <vector>
 #include "sqlite3.h"
@@ -67,6 +71,7 @@ public:
 
 private:
     sqlite3* m_db;
+    CRITICAL_SECTION m_cs;
 
     bool ExecSQL(const char* sql);
     bool CreateTables();
