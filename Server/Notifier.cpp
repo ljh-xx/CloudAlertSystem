@@ -168,11 +168,21 @@ void Notifier::RegisterUser(int userId, SOCKET sock) {
            userId, (unsigned long long)sock);
 }
 
-void Notifier::UnregisterUser(int userId) {
+void Notifier::UnregisterUser(int userId, SOCKET sock) {
+    bool removed = false;
     EnterCriticalSection(&m_cs);
-    m_userSockets.erase(userId);
+    auto it = m_userSockets.find(userId);
+    if (it != m_userSockets.end() && it->second == sock) {
+        m_userSockets.erase(it);
+        removed = true;
+    }
     LeaveCriticalSection(&m_cs);
-    printf("[Notifier] User %d offline\n", userId);
+    if (removed) {
+        printf("[Notifier] User %d offline\n", userId);
+    } else {
+        printf("[Notifier] Ignored stale offline event for user %d (socket %llu)\n",
+               userId, (unsigned long long)sock);
+    }
 }
 
 bool Notifier::SendToUser(int userId, const std::string& data) {

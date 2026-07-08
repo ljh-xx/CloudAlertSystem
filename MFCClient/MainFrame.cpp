@@ -1,4 +1,4 @@
-// MainFrame.cpp - main alert management window for Cloud Alert System.
+﻿// MainFrame.cpp - main alert management window for Cloud Alert System.
 
 #include "MainFrame.h"
 #include "ChangeEmailDlg.h"
@@ -483,15 +483,76 @@ void CMainFrame::OnListItemChanged(NMHDR* pNMHDR, LRESULT* pResult) {
 
 LRESULT CMainFrame::OnTriggered(WPARAM, LPARAM lParam) {
     CString* line = reinterpret_cast<CString*>(lParam);
-    CString msg = "Alert triggered:\n\n" + *line;
+    std::string rawLine = (LPCSTR)*line;
+    auto fields = Split(rawLine);
+
+    CString msg;
+    if (fields.size() >= 9) {
+        int alertType = atoi(fields[2].c_str());
+        std::string timestamp = fields[8];
+        for (size_t i = 9; i < fields.size(); ++i) {
+            timestamp += " " + fields[i];
+        }
+
+        if (alertType == ALERT_TYPE_TIME) {
+            msg.Format(
+                "\xA1\xBE\xCA\xB1\xBC\xE4\xD4\xA4\xBE\xAF\xB4\xA5\xB7\xA2\xA1\xBF\n\n"
+                "\xD4\xA4\xBE\xAF\x49\x44\xA3\xBA%s\n"
+                "\xBA\xCF\xD4\xBC\xA3\xBA%s\n"
+                "\xCC\xE1\xD0\xD1\xCA\xB1\xBC\xE4\xA3\xBA%s\n"
+                "\xB4\xA5\xB7\xA2\xCA\xB1\xD7\xEE\xD0\xC2\xBC\xDB\xA3\xBA%s\n"
+                "\xB4\xA5\xB7\xA2\xCA\xB1\xBC\xE4\xA3\xBA%s\n\n"
+                "\xB5\xE3\xBB\xF7\xA1\xB0\xC8\xB7\xB6\xA8\xA1\xB1\xBA\xF3\xBC\xCC\xD0\xF8\xB2\xD9\xD7\xF7\xA1\xA3",
+                fields[1].c_str(),
+                fields[3].c_str(),
+                fields[7].c_str(),
+                FormatPriceText(fields[4]).c_str(),
+                timestamp.c_str());
+        } else {
+            std::string condText = fields[5] == "1" ? "<=" : ">=";
+            msg.Format(
+                "\xA1\xBE\xBC\xDB\xB8\xF1\xD4\xA4\xBE\xAF\xB4\xA5\xB7\xA2\xA1\xBF\n\n"
+                "\xD4\xA4\xBE\xAF\x49\x44\xA3\xBA%s\n"
+                "\xBA\xCF\xD4\xBC\xA3\xBA%s\n"
+                "\xB4\xA5\xB7\xA2\xCC\xF5\xBC\xFE\xA3\xBA\xD7\xEE\xD0\xC2\xBC\xDB %s %s\n"
+                "\xB4\xA5\xB7\xA2\xCA\xB1\xD7\xEE\xD0\xC2\xBC\xDB\xA3\xBA%s\n"
+                "\xB4\xA5\xB7\xA2\xCA\xB1\xBC\xE4\xA3\xBA%s\n\n"
+                "\xB5\xE3\xBB\xF7\xA1\xB0\xC8\xB7\xB6\xA8\xA1\xB1\xBA\xF3\xBC\xCC\xD0\xF8\xB2\xD9\xD7\xF7\xA1\xA3",
+                fields[1].c_str(),
+                fields[3].c_str(),
+                condText.c_str(),
+                FormatPriceText(fields[6]).c_str(),
+                FormatPriceText(fields[4]).c_str(),
+                timestamp.c_str());
+        }
+    } else if (fields.size() >= 6) {
+        std::string timestamp = fields[4];
+        for (size_t i = 5; i < fields.size(); ++i) {
+            timestamp += " " + fields[i];
+        }
+
+        msg.Format(
+            "\xA1\xBE\xD4\xA4\xBE\xAF\xB4\xA5\xB7\xA2\xA1\xBF\n\n"
+            "\xD4\xA4\xBE\xAF\x49\x44\xA3\xBA%s\n"
+            "\xBA\xCF\xD4\xBC\xA3\xBA%s\n"
+            "\xB4\xA5\xB7\xA2\xCA\xB1\xD7\xEE\xD0\xC2\xBC\xDB\xA3\xBA%s\n"
+            "\xB4\xA5\xB7\xA2\xCA\xB1\xBC\xE4\xA3\xBA%s\n\n"
+            "\xB5\xE3\xBB\xF7\xA1\xB0\xC8\xB7\xB6\xA8\xA1\xB1\xBA\xF3\xBC\xCC\xD0\xF8\xB2\xD9\xD7\xF7\xA1\xA3",
+            fields[1].c_str(),
+            fields[2].c_str(),
+            FormatPriceText(fields[3]).c_str(),
+            timestamp.c_str());
+    } else {
+        msg = "\xA1\xBE\xD4\xA4\xBE\xAF\xB4\xA5\xB7\xA2\xA1\xBF\n\n" + *line + "\n\n\xB5\xE3\xBB\xF7\xA1\xB0\xC8\xB7\xB6\xA8\xA1\xB1\xBA\xF3\xBC\xCC\xD0\xF8\xB2\xD9\xD7\xF7\xA1\xA3";
+    }
+
     SetStatus(std::string((LPCSTR)*line));
-    ShowToast("Alert triggered");
-    AfxMessageBox(msg, MB_ICONINFORMATION);
+    ShowToast("\xD4\xA4\xBE\xAF\xD2\xD1\xB4\xA5\xB7\xA2");
+    AfxMessageBox(msg, MB_OK | MB_ICONINFORMATION);
     delete line;
     RefreshAlerts();
     return 0;
 }
-
 LRESULT CMainFrame::OnPostLogin(WPARAM, LPARAM) {
     if (!m_connected || m_username.IsEmpty()) return 0;
     SetStatus("Loading account data...");

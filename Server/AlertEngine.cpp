@@ -1,4 +1,4 @@
-// AlertEngine.cpp - Price and time alert evaluation
+﻿// AlertEngine.cpp - Price and time alert evaluation
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -29,6 +29,10 @@ static std::string GetCurrentHMS() {
     char buf[16];
     strftime(buf, sizeof(buf), "%H:%M:%S", &tm_info);
     return std::string(buf);
+}
+
+static const char* ConditionText(int condition) {
+    return condition == COND_LE ? "<=" : ">=";
 }
 
 // ---------------------------------------------------------------------------
@@ -147,7 +151,9 @@ void AlertEngine::CheckTimeAlerts() {
     for (const auto& rec : pending) {
         std::string ts = GetCurrentTimeStr();
         if (m_db->TriggerAlert(rec.id, ts)) {
-            FireAlert(rec, 0.0, ts);
+            double lastPrice = 0.0;
+            GetLastPrice(rec.contract, lastPrice);
+            FireAlert(rec, lastPrice, ts);
         }
     }
 }
@@ -160,12 +166,16 @@ void AlertEngine::FireAlert(const AlertRecord& rec,
                             double lastPrice,
                             const std::string& timestamp) {
     // Build TRIGGERED protocol line
-    char msgBuf[256];
+    char msgBuf[512];
     _snprintf_s(msgBuf, sizeof(msgBuf),
-        "TRIGGERED %d %s %.2f %s\n",
+        "TRIGGERED %d %d %s %.2f %d %.2f %s %s\n",
         rec.id,
+        rec.alert_type,
         rec.contract.c_str(),
         lastPrice,
+        rec.condition,
+        rec.trigger_price,
+        rec.trigger_time.empty() ? "-" : rec.trigger_time.c_str(),
         timestamp.c_str());
 
     std::string msg(msgBuf);
@@ -173,21 +183,46 @@ void AlertEngine::FireAlert(const AlertRecord& rec,
     // Get user email for offline fallback
     std::string email = m_db->GetEmail(rec.user_id);
 
-    // Build email subject/body
-    char subjectBuf[256];
-    char bodyBuf[512];
-    _snprintf_s(subjectBuf, sizeof(subjectBuf),
-        "Alert Triggered: %s", rec.contract.c_str());
+    // Build email subject/body. Chinese text is encoded as GBK byte escapes to
+    // keep the MBCS project build stable across source encodings.
+    char subjectBuf[256] = {};
+    char bodyBuf[1024] = {};
     if (rec.alert_type == ALERT_TYPE_PRICE) {
+        _snprintf_s(subjectBuf, sizeof(subjectBuf),
+            "\xBC\xDB\xB8\xF1\xD4\xA4\xBE\xAF\xB4\xA5\xB7\xA2\xA3\xBA%s",
+            rec.contract.c_str());
         _snprintf_s(bodyBuf, sizeof(bodyBuf),
-            "Alert ID %d: %s reached %.2f at %s",
-            rec.id, rec.contract.c_str(), lastPrice, timestamp.c_str());
+            "\xA1\xBE\xBC\xDB\xB8\xF1\xD4\xA4\xBE\xAF\xB4\xA5\xB7\xA2\xA1\xBF\n\n"
+            "\xD4\xA4\xBE\xAFID\xA3\xBA%d\n"
+            "\xBA\xCF\xD4\xBC\xA3\xBA%s\n"
+            "\xB4\xA5\xB7\xA2\xCC\xF5\xBC\xFE\xA3\xBA\xD7\xEE\xD0\xC2\xBC\xDB %s %.2f\n"
+            "\xB4\xA5\xB7\xA2\xCA\xB1\xD7\xEE\xD0\xC2\xBC\xDB\xA3\xBA%.2f\n"
+            "\xB4\xA5\xB7\xA2\xCA\xB1\xBC\xE4\xA3\xBA%s\n\n"
+            "\xB8\xC3\xD4\xA4\xBE\xAF\xD2\xD1\xD7\xD4\xB6\xAF\xB1\xEA\xBC\xC7\xCE\xAA\xD2\xD1\xB4\xA5\xB7\xA2\xA3\xAC\xB2\xBB\xBB\xE1\xD6\xD8\xB8\xB4\xCC\xE1\xD0\xD1\xA1\xA3",
+            rec.id,
+            rec.contract.c_str(),
+            ConditionText(rec.condition),
+            rec.trigger_price,
+            lastPrice,
+            timestamp.c_str());
     } else {
+        _snprintf_s(subjectBuf, sizeof(subjectBuf),
+            "\xCA\xB1\xBC\xE4\xD4\xA4\xBE\xAF\xB4\xA5\xB7\xA2\xA3\xBA%s",
+            rec.contract.c_str());
         _snprintf_s(bodyBuf, sizeof(bodyBuf),
-            "Alert ID %d: %s time alert triggered at %s",
-            rec.id, rec.contract.c_str(), timestamp.c_str());
+            "\xA1\xBE\xCA\xB1\xBC\xE4\xD4\xA4\xBE\xAF\xB4\xA5\xB7\xA2\xA1\xBF\n\n"
+            "\xD4\xA4\xBE\xAFID\xA3\xBA%d\n"
+            "\xBA\xCF\xD4\xBC\xA3\xBA%s\n"
+            "\xCC\xE1\xD0\xD1\xCA\xB1\xBC\xE4\xA3\xBA%s\n"
+            "\xB4\xA5\xB7\xA2\xCA\xB1\xD7\xEE\xD0\xC2\xBC\xDB\xA3\xBA%.2f\n"
+            "\xB4\xA5\xB7\xA2\xCA\xB1\xBC\xE4\xA3\xBA%s\n\n"
+            "\xC7\xEB\xB0\xB4\xBC\xC6\xBB\xAE\xB9\xD8\xD7\xA2\xB8\xC3\xBA\xCF\xD4\xBC\xA1\xA3",
+            rec.id,
+            rec.contract.c_str(),
+            rec.trigger_time.empty() ? "-" : rec.trigger_time.c_str(),
+            lastPrice,
+            timestamp.c_str());
     }
-
     printf("[AlertEngine] Firing alert id=%d user=%d contract=%s ts=%s\n",
            rec.id, rec.user_id, rec.contract.c_str(), timestamp.c_str());
 
@@ -248,3 +283,4 @@ void AlertEngine::StopTimerThread() {
         m_timerThread = nullptr;
     }
 }
+

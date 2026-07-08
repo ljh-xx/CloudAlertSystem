@@ -35,7 +35,7 @@ ClientSession::ClientSession(SOCKET sock, AlertDB* db, Notifier* notifier, Alert
 
 ClientSession::~ClientSession() {
     if (m_userId != -1)
-        m_notifier->UnregisterUser(m_userId);
+        m_notifier->UnregisterUser(m_userId, m_sock);
     closesocket(m_sock);
 }
 

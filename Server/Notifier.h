@@ -21,7 +21,7 @@ public:
 
     // Register/unregister a user's socket (called by ClientSession)
     void RegisterUser(int userId, SOCKET sock);
-    void UnregisterUser(int userId);
+    void UnregisterUser(int userId, SOCKET sock);
 
     // Send TRIGGERED message to online user; if offline, send email
     // msg should be the full protocol line including trailing '\n'
