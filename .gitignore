@@ -361,3 +361,27 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+# CloudAlertSystem local runtime files
+alerts.db
+alerts.db-*
+server.conf
+*.out.log
+*.err.log
+server_out.txt
+server_err.txt
+ctpflow/
+
+# Runtime binaries copied beside executables
+*.dll
+*.exe
+*.exp
+
+# Local test scripts and release packages
+test_*.ps1
+CloudAlertSystem-Test*/
+README-测试说明.txt
+
+# Local generated reports / scratch files
+_资料抽取.txt
+_report_render/

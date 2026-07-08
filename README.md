@@ -1,133 +1,235 @@
 # CloudAlertSystem
 
-一个基于 C++ 的期货行情预警系统，支持实时行情推送和邮件通知功能。
+期货云端预警系统，基于 C++ / MFC / Winsock2 / SQLite / CTP 行情接口实现。系统采用 C/S 架构，将行情接入、预警判断、状态持久化和通知分发放到服务端完成，客户端主要负责登录、配置邮箱、管理预警和接收提醒。
 
-## 📋 目录
+## 功能概览
 
-- [项目简介](#项目简介)
-- [功能特性](#功能特性)
-- [技术栈](#技术栈)
-- [快速开始](#快速开始)
-- [项目结构](#项目结构)
-- [开发指南](#开发指南)
-- [协作开发](#协作开发)
-
-## 项目简介
-
-CloudAlertSystem 是一个云端期货预警系统，主要功能包括：
-
-- 实时连接期货行情服务器（CTP 接口）
-- 支持价格预警和时间预警
-- 用户在线时通过 TCP 实时推送，离线时发送邮件通知
-- 基于 SQLite 的本地数据库存储
-
-## 功能特性
-
-- ✅ CTP 期货行情接口对接
-- ✅ 价格预警（>= / <=）
-- ✅ 时间预警
-- ✅ 实时 TCP 推送
-- ✅ 邮件通知（支持 SSL/TLS）
-- ✅ 多用户支持
-- ✅ SQLite 本地数据库
-
-## 技术栈
-
-- **语言**: C++17
-- **IDE**: Visual Studio 2022
-- **数据库**: SQLite3
-- **网络**: Winsock2
-- **邮件**: EmailNotify.dll
-
-## 快速开始
-
-### 环境要求
-
-- Windows 10/11
-- Visual Studio 2022 (v145 工具集)
-- Git
-
-### 克隆项目
-
-```bash
-git clone https://github.com/你的用户名/CloudAlertSystem.git
-cd CloudAlertSystem
-```
-
-### 编译项目
-
-1. 使用 Visual Studio 2022 打开 `CloudAlertSystem.sln`
-2. 选择配置：**Debug | x64**
-3. 右键点击解决方案 → **生成解决方案**
-
-### 运行项目
-
-编译成功后，可执行文件位于 `bin/x64/Debug/` 目录：
-
-```bash
-cd bin/x64/Debug
-# 启动服务器
-Server.exe
-```
+- 用户注册、登录、退出
+- 登录后显示当前绑定邮箱
+- 输入密码后修改邮箱
+- 添加、修改、删除价格预警
+- 添加、修改、删除时间预警
+- 普通列表默认隐藏已删除预警，可单独查看删除记录
+- 预警列表显示当前价格，价格统一保留两位小数
+- 当前价格每 30 秒自动刷新
+- 常用期货合约快捷选择
+- 在线触发时客户端弹窗提醒
+- 离线触发时邮件提醒
+- 服务端 SQLite 持久化用户、邮箱和预警数据
+- 服务端启动后自动恢复未触发预警
+- 服务端连接处理使用固定线程池
+- 价格预警规则和最新行情使用内存缓存加速判断
+- 支持 Debug 和 Release 一键构建
 
 ## 项目结构
 
-```
+```text
 CloudAlertSystem/
-├── Server/              # 服务器端
-│   ├── main.cpp         # 程序入口
-│   ├── Notifier.cpp     # 邮件通知模块
-│   ├── AlertEngine.cpp  # 预警引擎
-│   ├── CTPMdHandler.cpp # CTP 行情处理
-│   ├── ClientSession.cpp # 客户端会话
-│   ├── TcpServer.cpp    # TCP 服务器
-│   ├── AlertDB.cpp      # 数据库操作
-│   └── ctp/             # CTP 接口头文件（存根）
-├── Client/              # 控制台客户端
-├── MFCClient/           # MFC 图形界面客户端
-├── EmailProbe/          # 邮件测试工具
-├── bin/x64/Debug/       # 编译输出目录
-└── CloudAlertSystem.sln # Visual Studio 解决方案
+  Server/                 服务端源码
+    main.cpp              服务端入口
+    TcpServer.*           TCP 监听与连接线程池
+    ClientSession.*       单客户端会话与命令处理
+    AlertDB.*             SQLite 数据库访问
+    AlertEngine.*         价格/时间预警判断
+    CTPMdHandler.*        CTP 行情接入
+    Notifier.*            在线推送与离线邮件通知
+    Protocol.h            协议常量
+    ctp/                  CTP 头文件
+
+  MFCClient/              MFC 图形客户端
+    MFCClient.cpp         MFC 应用入口
+    MainFrame.*           主界面
+    LoginDlg.*            登录弹窗
+    RegisterDlg.*         注册弹窗
+    ChangeEmailDlg.*      修改邮箱弹窗
+    StyledButton.*        自定义按钮
+
+  Client/                 控制台客户端，主要用于调试
+  EmailProbe/             邮件库探测/调试工具
+  EmailTest/              邮件测试工具
+  build.bat               一键构建脚本
+  使用教程.md             Debug 版和精简测试版使用说明
 ```
 
-## 开发指南
+## 环境要求
 
-详细的开发指南请参考 [CONTRIBUTING.md](./CONTRIBUTING.md)
+- Windows 10/11
+- Visual Studio 2022 或 Visual Studio 18
+- 安装 C++ 桌面开发组件
+- 安装 MFC 组件
+- MSBuild 可在命令行访问，或 Visual Studio 已正确安装
 
-### 配置邮件发送
+运行服务端时还需要以下运行库文件与 `Server.exe` 在同一目录：
 
-编辑 `Server/Notifier.cpp`：
+- `thostmduserapi_se.dll`
+- `EmailNotify.dll`
+- `server.conf`
+- `ctpflow/` 目录
 
-```cpp
-static const char* kEmailAccount  = "你的126邮箱账号";
-static const char* kEmailPassword = "你的授权码";
-static const char* kEmailSmtp     = "smtp.126.com:465";
-static const char* kEmailFrom     = "你的126邮箱";
+## 编译方式
+
+进入项目目录：
+
+```bat
+cd /d C:\Users\27477\Desktop\trae\CloudAlertSystem
 ```
 
-注意：
-- 需要在 126 邮箱设置中开启 SMTP 服务
-- 使用授权码而非登录密码
-- 确保使用 SSL/TLS（端口 465）
+编译 Debug 版：
 
-## 协作开发
+```bat
+build.bat
+```
 
-欢迎贡献代码！请先阅读 [CONTRIBUTING.md](./CONTRIBUTING.md) 了解协作流程。
+编译 Release 版：
 
-### 快速参考
+```bat
+build.bat Release
+```
 
-| 操作 | 命令 |
-|------|------|
-| 克隆仓库 | `git clone https://github.com/你的用户名/CloudAlertSystem.git` |
-| 创建分支 | `git checkout -b feature/你的功能` |
-| 提交更改 | `git add . && git commit -m "描述"` |
-| 推送分支 | `git push origin feature/你的功能` |
-| 拉取更新 | `git pull origin main` |
+如果遇到工具集版本问题，可以指定工具集：
 
-## 许可证
+```bat
+build.bat Debug v143
+build.bat Release v143
+```
 
-[LICENSE](./LICENSE.txt)
+输出目录：
 
-## 联系方式
+```text
+bin\x64\Debug
+bin\x64\Release
+```
 
-如有问题，请提交 Issue 或联系项目维护者。
+## 运行方式
+
+### Debug 开发版
+
+```bat
+cd /d C:\Users\27477\Desktop\trae\CloudAlertSystem\bin\x64\Debug
+Server.exe
+```
+
+保持服务端窗口打开，再启动图形客户端：
+
+```bat
+MFCClient.exe
+```
+
+### Release / 精简测试版
+
+精简测试包建议包含：
+
+```text
+CloudAlertSystem-Test-v0.1/
+  Server.exe
+  MFCClient.exe
+  thostmduserapi_se.dll
+  EmailNotify.dll
+  server.conf
+  ctpflow/
+  README-测试说明.txt
+```
+
+启动顺序：
+
+```text
+1. 双击 Server.exe
+2. 等待出现 Listening on port 8888
+3. 保持服务端窗口打开
+4. 双击 MFCClient.exe
+5. 注册或登录账号
+6. 设置邮箱
+7. 添加价格预警或时间预警
+```
+
+更详细的 Debug 版和精简版使用说明见：
+
+[使用教程.md](./使用教程.md)
+
+## 配置说明
+
+服务端默认监听：
+
+```text
+127.0.0.1:8888
+```
+
+邮件配置文件为：
+
+```text
+server.conf
+```
+
+示例字段：
+
+```ini
+email_account=your_account
+email_password=your_smtp_authorization_code
+email_smtp=smtp.example.com
+email_from=your_account@example.com
+email_ssl=0
+```
+
+注意：`server.conf` 中可能包含邮箱授权码，不建议提交到公开仓库，也不建议随意转发给无关人员。
+
+## 常见问题
+
+### 1. 客户端显示 Offline
+
+请确认 `Server.exe` 已启动，并且服务端窗口出现：
+
+```text
+Listening on port 8888
+```
+
+### 2. 当前价格显示为 `-`
+
+可能原因：
+
+- 当前不是交易时段
+- CTP 行情前置连接失败
+- 合约代码不正确
+- 当前行情源不支持该合约
+- 服务端尚未收到该合约最新 tick
+
+### 3. CTP 报 can not open CFlow file
+
+请在 `Server.exe` 所在目录下新建：
+
+```text
+ctpflow
+```
+
+然后重新启动服务端。
+
+### 4. 离线邮件没有收到
+
+请检查：
+
+- `EmailNotify.dll` 是否和 `Server.exe` 在同一目录
+- `server.conf` 是否存在
+- SMTP 账号、授权码和服务器地址是否正确
+- 用户是否已经绑定邮箱
+- 客户端在线时默认走弹窗，不会优先发送邮件
+
+## 当前已知限制
+
+- CTP 合约订阅仍需进一步去重，避免频繁重复订阅。
+- 测试包需要手动保留 `ctpflow/` 目录。
+- 密码字段后续建议升级为加盐哈希存储。
+- 当前通知渠道为客户端弹窗和邮件，暂未接入短信、企业微信或移动端推送。
+- 当前没有独立运维后台，服务状态主要通过控制台日志查看。
+
+## 版本管理
+
+本项目使用 Git 管理。常用命令：
+
+```bat
+git status
+git add .
+git commit -m "提交说明"
+git push origin master
+```
+
+提交说明建议使用中文，便于回溯每一步做了什么。
+
