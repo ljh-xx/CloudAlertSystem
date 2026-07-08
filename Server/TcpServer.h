@@ -6,6 +6,8 @@
 #endif
 #include <winsock2.h>
 #include <windows.h>
+#include <queue>
+#include <vector>
 #include "AlertDB.h"
 #include "Notifier.h"
 #include "AlertEngine.h"
@@ -30,4 +32,14 @@ private:
     AlertEngine*  m_engine;
     SOCKET        m_listenSock;
     bool          m_running;
+    CRITICAL_SECTION m_queueCs;
+    std::queue<SOCKET> m_clientQueue;
+    HANDLE        m_queueSemaphore;
+    std::vector<HANDLE> m_workerThreads;
+
+    bool StartWorkerPool();
+    void StopWorkerPool();
+    bool EnqueueClient(SOCKET clientSock);
+    bool DequeueClient(SOCKET& clientSock);
+    static DWORD WINAPI WorkerThreadProc(LPVOID pParam);
 };

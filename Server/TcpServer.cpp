@@ -14,12 +14,19 @@
 #include "Protocol.h"
 #include <stdio.h>
 
+static const int TCP_WORKER_COUNT = 32;
+static const size_t TCP_PENDING_QUEUE_LIMIT = 256;
+
 TcpServer::TcpServer(AlertDB* db, Notifier* notifier, AlertEngine* engine)
     : m_db(db), m_notifier(notifier), m_engine(engine),
-      m_listenSock(INVALID_SOCKET), m_running(false) {}
+      m_listenSock(INVALID_SOCKET), m_running(false),
+      m_queueSemaphore(NULL) {
+    InitializeCriticalSection(&m_queueCs);
+}
 
 TcpServer::~TcpServer() {
     Stop();
+    DeleteCriticalSection(&m_queueCs);
 }
 
 bool TcpServer::Init(int port) {
@@ -62,6 +69,39 @@ bool TcpServer::Init(int port) {
     }
 
     printf("[TcpServer] Listening on port %d\n", port);
+    if (!StartWorkerPool()) {
+        closesocket(m_listenSock);
+        m_listenSock = INVALID_SOCKET;
+        WSACleanup();
+        return false;
+    }
+    return true;
+}
+
+bool TcpServer::StartWorkerPool() {
+    m_queueSemaphore = CreateSemaphore(nullptr, 0, 0x7fffffff, nullptr);
+    if (!m_queueSemaphore) {
+        fprintf(stderr, "[TcpServer] CreateSemaphore failed: %u\n", GetLastError());
+        return false;
+    }
+
+    for (int i = 0; i < TCP_WORKER_COUNT; ++i) {
+        HANDLE hThread = CreateThread(
+            nullptr, 0,
+            WorkerThreadProc,
+            this,
+            0, nullptr);
+        if (!hThread) {
+            fprintf(stderr, "[TcpServer] Failed to create worker thread %d (err=%u)\n",
+                    i, GetLastError());
+            StopWorkerPool();
+            return false;
+        }
+        m_workerThreads.push_back(hThread);
+    }
+
+    printf("[TcpServer] Worker pool started (%d thread(s), queue limit %llu)\n",
+           TCP_WORKER_COUNT, (unsigned long long)TCP_PENDING_QUEUE_LIMIT);
     return true;
 }
 
@@ -84,22 +124,9 @@ void TcpServer::Run() {
         printf("[TcpServer] New client from %s:%d\n",
                ipBuf, ntohs(clientAddr.sin_port));
 
-        // Each connection gets its own ClientSession object and thread.
-        // The thread deletes the session object when it exits (see ThreadFunc).
-        ClientSession* session =
-            new ClientSession(clientSock, m_db, m_notifier, m_engine);
-
-        HANDLE hThread = CreateThread(
-            nullptr, 0,
-            ClientSession::ThreadFunc,
-            session,
-            0, nullptr);
-
-        if (hThread)
-            CloseHandle(hThread); // detach
-        else {
-            fprintf(stderr, "[TcpServer] CreateThread failed\n");
-            delete session;
+        if (!EnqueueClient(clientSock)) {
+            fprintf(stderr, "[TcpServer] Client queue full, rejecting connection\n");
+            closesocket(clientSock);
         }
     }
     printf("[TcpServer] Accept loop exited\n");
@@ -111,4 +138,82 @@ void TcpServer::Stop() {
         closesocket(m_listenSock);
         m_listenSock = INVALID_SOCKET;
     }
+    StopWorkerPool();
+    WSACleanup();
+}
+
+bool TcpServer::EnqueueClient(SOCKET clientSock) {
+    bool queued = false;
+    EnterCriticalSection(&m_queueCs);
+    if (m_clientQueue.size() < TCP_PENDING_QUEUE_LIMIT) {
+        m_clientQueue.push(clientSock);
+        queued = true;
+    }
+    LeaveCriticalSection(&m_queueCs);
+
+    if (queued && m_queueSemaphore) {
+        ReleaseSemaphore(m_queueSemaphore, 1, nullptr);
+    }
+    return queued;
+}
+
+bool TcpServer::DequeueClient(SOCKET& clientSock) {
+    clientSock = INVALID_SOCKET;
+    EnterCriticalSection(&m_queueCs);
+    if (!m_clientQueue.empty()) {
+        clientSock = m_clientQueue.front();
+        m_clientQueue.pop();
+    }
+    LeaveCriticalSection(&m_queueCs);
+    return clientSock != INVALID_SOCKET;
+}
+
+void TcpServer::StopWorkerPool() {
+    if (m_queueSemaphore && !m_workerThreads.empty()) {
+        ReleaseSemaphore(m_queueSemaphore, (LONG)m_workerThreads.size(), nullptr);
+    }
+
+    for (HANDLE hThread : m_workerThreads) {
+        if (hThread) {
+            WaitForSingleObject(hThread, 3000);
+            CloseHandle(hThread);
+        }
+    }
+    m_workerThreads.clear();
+
+    EnterCriticalSection(&m_queueCs);
+    while (!m_clientQueue.empty()) {
+        SOCKET sock = m_clientQueue.front();
+        m_clientQueue.pop();
+        closesocket(sock);
+    }
+    LeaveCriticalSection(&m_queueCs);
+
+    if (m_queueSemaphore) {
+        CloseHandle(m_queueSemaphore);
+        m_queueSemaphore = NULL;
+    }
+}
+
+DWORD WINAPI TcpServer::WorkerThreadProc(LPVOID pParam) {
+    TcpServer* self = reinterpret_cast<TcpServer*>(pParam);
+    printf("[TcpServer] Worker thread started\n");
+
+    while (true) {
+        DWORD waitRc = WaitForSingleObject(self->m_queueSemaphore, INFINITE);
+        if (waitRc != WAIT_OBJECT_0) break;
+
+        SOCKET clientSock = INVALID_SOCKET;
+        if (!self->DequeueClient(clientSock)) {
+            if (!self->m_running) break;
+            continue;
+        }
+
+        ClientSession* session =
+            new ClientSession(clientSock, self->m_db, self->m_notifier, self->m_engine);
+        ClientSession::ThreadFunc(session);
+    }
+
+    printf("[TcpServer] Worker thread stopped\n");
+    return 0;
 }
