@@ -8,6 +8,7 @@
 #include "AlertEngine.h"
 #include "CTPMdHandler.h"
 #include "Protocol.h"
+#include <algorithm>
 #include <stdio.h>
 #include <time.h>
 #include <string.h>
@@ -34,7 +35,9 @@ static std::string GetCurrentHMS() {
 
 AlertEngine::AlertEngine(AlertDB* db, Notifier* notifier)
     : m_db(db), m_notifier(notifier), m_ctpHandler(nullptr),
-      m_timerThread(nullptr), m_timerRunning(false) {}
+      m_timerThread(nullptr), m_timerRunning(false) {
+    RefreshPriceAlertCache();
+}
 
 AlertEngine::~AlertEngine() {
     StopTimerThread();
@@ -55,8 +58,14 @@ void AlertEngine::CheckPriceAlert(const std::string& contract,
         m_lastPrices[contract] = lastPrice;
     }
 
-    std::vector<AlertRecord> pending =
-        m_db->GetPendingPriceAlerts(contract);
+    std::vector<AlertRecord> pending;
+    {
+        std::lock_guard<std::mutex> lk(m_alertCacheMtx);
+        auto it = m_priceAlertCache.find(contract);
+        if (it != m_priceAlertCache.end()) {
+            pending = it->second;
+        }
+    }
 
     for (const auto& rec : pending) {
         bool fired = false;
@@ -68,6 +77,7 @@ void AlertEngine::CheckPriceAlert(const std::string& contract,
         if (fired) {
             std::string ts = GetCurrentTimeStr();
             if (m_db->TriggerAlert(rec.id, ts)) {
+                RemoveCachedPriceAlert(rec.id);
                 FireAlert(rec, lastPrice, ts);
             }
         }
@@ -80,6 +90,49 @@ bool AlertEngine::GetLastPrice(const std::string& contract, double& lastPrice) c
     if (it == m_lastPrices.end()) return false;
     lastPrice = it->second;
     return true;
+}
+
+void AlertEngine::RefreshPriceAlertCache() {
+    std::map<std::string, std::vector<AlertRecord>> nextCache;
+    std::vector<std::string> contracts = m_db->GetPendingContracts();
+
+    for (const auto& contract : contracts) {
+        std::vector<AlertRecord> records = m_db->GetPendingPriceAlerts(contract);
+        if (!records.empty()) {
+            nextCache[contract] = records;
+        }
+    }
+
+    size_t alertCount = 0;
+    for (const auto& item : nextCache) {
+        alertCount += item.second.size();
+    }
+
+    size_t contractCount = 0;
+    {
+        std::lock_guard<std::mutex> lk(m_alertCacheMtx);
+        m_priceAlertCache.swap(nextCache);
+        contractCount = m_priceAlertCache.size();
+    }
+    printf("[AlertEngine] Price alert cache refreshed: %llu contract(s), %llu alert(s)\n",
+           (unsigned long long)contractCount,
+           (unsigned long long)alertCount);
+}
+
+void AlertEngine::RemoveCachedPriceAlert(int alertId) {
+    std::lock_guard<std::mutex> lk(m_alertCacheMtx);
+    for (auto it = m_priceAlertCache.begin(); it != m_priceAlertCache.end(); ) {
+        auto& records = it->second;
+        records.erase(
+            std::remove_if(records.begin(), records.end(),
+                [alertId](const AlertRecord& rec) { return rec.id == alertId; }),
+            records.end());
+        if (records.empty()) {
+            it = m_priceAlertCache.erase(it);
+        } else {
+            ++it;
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

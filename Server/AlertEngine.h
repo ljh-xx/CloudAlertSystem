@@ -29,6 +29,9 @@ public:
     // Read the latest cached market price for a contract.
     bool GetLastPrice(const std::string& contract, double& lastPrice) const;
 
+    // Reload pending price alerts into memory after startup or rule changes.
+    void RefreshPriceAlertCache();
+
     // Called once per second by the timer thread
     void CheckTimeAlerts();
 
@@ -57,6 +60,10 @@ private:
     bool    m_timerRunning;
     mutable std::mutex m_priceMtx;
     std::map<std::string, double> m_lastPrices;
+    mutable std::mutex m_alertCacheMtx;
+    std::map<std::string, std::vector<AlertRecord>> m_priceAlertCache;
+
+    void RemoveCachedPriceAlert(int alertId);
 
     // Build and dispatch a TRIGGERED protocol line
     void FireAlert(const AlertRecord& rec,

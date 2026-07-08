@@ -202,6 +202,7 @@ void ClientSession::HandleAddPrice(const std::string& line) {
         return;
     }
     // Subscribe contract via CTP so ticks arrive immediately
+    m_engine->RefreshPriceAlertCache();
     m_engine->SubscribeContract(contract);
     char buf[64];
     _snprintf_s(buf, sizeof(buf), "OK %d", alertId);
@@ -245,10 +246,12 @@ void ClientSession::HandleDelete(const std::string& line) {
         return;
     }
     int alertId = atoi(tokens[1].c_str());
-    if (m_db->DeleteAlert(alertId, m_userId))
+    if (m_db->DeleteAlert(alertId, m_userId)) {
+        m_engine->RefreshPriceAlertCache();
         SendLine("OK");
-    else
+    } else {
         SendLine("ERR Delete failed (not found or already deleted)");
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -270,10 +273,13 @@ void ClientSession::HandleModifyPrice(const std::string& line) {
         SendLine("ERR condition must be 0 (>=) or 1 (<=)");
         return;
     }
-    if (m_db->ModifyPriceAlert(alertId, m_userId, contract, price, cond))
+    if (m_db->ModifyPriceAlert(alertId, m_userId, contract, price, cond)) {
+        m_engine->RefreshPriceAlertCache();
+        m_engine->SubscribeContract(contract);
         SendLine("OK");
-    else
+    } else {
         SendLine("ERR Modify failed");
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -290,10 +296,12 @@ void ClientSession::HandleModifyTime(const std::string& line) {
     int alertId = atoi(tokens[1].c_str());
     const std::string& contract = tokens[2];
     const std::string& timeStr  = tokens[3];
-    if (m_db->ModifyTimeAlert(alertId, m_userId, contract, timeStr))
+    if (m_db->ModifyTimeAlert(alertId, m_userId, contract, timeStr)) {
+        m_engine->RefreshPriceAlertCache();
         SendLine("OK");
-    else
+    } else {
         SendLine("ERR Modify failed");
+    }
 }
 
 // ---------------------------------------------------------------------------
