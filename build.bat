@@ -10,14 +10,22 @@ set "MFC_PROJECT=MFCClient\MFCClient.vcxproj"
 set "TOOLSET_PROP="
 
 if not "%~1"=="" (
-    set "TOOLSET_PROP=/p:PlatformToolset=%~1"
+    if /I "%~1"=="Debug" (
+        set "CONFIG=Debug"
+        if not "%~2"=="" set "TOOLSET_PROP=/p:PlatformToolset=%~2"
+    ) else if /I "%~1"=="Release" (
+        set "CONFIG=Release"
+        if not "%~2"=="" set "TOOLSET_PROP=/p:PlatformToolset=%~2"
+    ) else (
+        set "TOOLSET_PROP=/p:PlatformToolset=%~1"
+    )
 )
 
 echo.
 echo ========================================
 echo CloudAlertSystem one-click build
 echo Configuration: %CONFIG%^|%PLATFORM%
-if defined TOOLSET_PROP echo Toolset override: %~1
+if defined TOOLSET_PROP echo Toolset override: %TOOLSET_PROP%
 echo ========================================
 echo.
 
@@ -66,6 +74,8 @@ if errorlevel 1 (
     echo.
     echo [ERROR] Solution build failed.
     echo If the error mentions PlatformToolset, try:
+    echo   build.bat %CONFIG% v143
+    echo or:
     echo   build.bat v143
     echo.
     pause
@@ -80,6 +90,8 @@ if errorlevel 1 (
     echo [ERROR] MFC client build failed.
     echo Make sure the MFC component is installed in Visual Studio Installer.
     echo If the error mentions PlatformToolset, try:
+    echo   build.bat %CONFIG% v143
+    echo or:
     echo   build.bat v143
     echo.
     pause
